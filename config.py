@@ -1,0 +1,84 @@
+"""Central configuration for Viralyst; keep tunable values here."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+CACHE_DIR = PROJECT_ROOT / "cache"
+TMP_DIR = PROJECT_ROOT / "tmp"
+MODEL_CACHE_DIR = CACHE_DIR / "models"
+
+# Models
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+WHISPER_MODEL_SIZE = "base"
+WHISPER_COMPUTE_TYPE = "int8"
+WHISPER_DOWNLOAD_ROOT = MODEL_CACHE_DIR / "whisper"
+WHISPER_NO_SPEECH_THRESHOLD = 0.60
+YOLO_MODEL = "yolov8n.pt"
+YOLO_CONF = 0.35
+
+# Video
+MAX_VIDEO_SECONDS = 120
+MAX_UPLOAD_MB = 200
+FRAME_SAMPLE_FPS = 1.0
+MAX_SAMPLED_FRAMES = 20
+MIN_SAMPLED_FRAMES = 5
+FRAME_RESIZE_LONG_SIDE = 640
+SCENE_CHANGE_THRESHOLD = 0.60
+DEFAULT_VIDEO_FPS = 30.0
+FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
+AUDIO_SAMPLE_RATE = 16_000
+FFMPEG_TIMEOUT_SECONDS = 180
+FAST_SPEECH_RATE_WPS = 3.2
+SLOW_SPEECH_RATE_WPS = 1.8
+FAST_SCENE_CHANGE_RATE = 0.40
+SLOW_SCENE_CHANGE_RATE = 0.15
+BUSY_OBJECTS_PER_FRAME = 4.0
+SPARSE_OBJECTS_PER_FRAME = 1.0
+
+# Population
+N_PERSONAS = 100
+RANDOM_SEED = int(os.getenv("RANDOM_SEED", "42"))
+
+# Social graph
+HOMOPHILY_THRESHOLD = 0.45
+MAX_DEGREE = 12
+RANDOM_EDGE_RATIO = 0.05
+SEED_SIZE = 5
+SEED_STRATEGY = "mixed"
+
+# Propagation
+EXPOSURE_PROBS = {
+    "share": 0.80,
+    "comment": 0.40,
+    "like": 0.20,
+    "watch": 0.05,
+    "skip": 0.00,
+}
+MAX_WAVES = 4
+MIN_NEW_EXPOSURES = 3
+CONTINUE_SHARE_RATE = 0.05
+MAX_NEW_PER_WAVE = 30
+SATURATION_PCT = 0.85
+
+# Scoring
+W_COMPLETION = 0.40
+W_SHARE = 0.30
+W_COMMENT = 0.20
+W_SKIP = -0.10
+REACH_BONUS_MAX = 10.0
+
+# Agents
+AUDIENCE_TEMPERATURE = 0.70
+RECOMMENDER_TEMPERATURE = 0.30
+MAX_WORKERS = 6
+LLM_RETRIES = 1
+TRANSCRIPT_CHAR_LIMIT = 600
+HOOK_SECONDS = 3.0

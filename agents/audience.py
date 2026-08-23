@@ -1,0 +1,2 @@
+"""Per-persona reaction agent."""
+

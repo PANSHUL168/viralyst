@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+cache/
+tmp/
+example/output/
+*.py[cod]
+*.pt
+*.mp4
+*.mov
+*.webm
+*.avi
+.env
+.DS_Store
