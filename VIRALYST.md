@@ -89,8 +89,8 @@ Dashboard shows:
 - [x] Audio extraction + transcription (faster-whisper)
 - [x] Frame sampling + object detection (YOLOv8n via ultralytics)
 - [x] Temporal/visual statistics (OpenCV)
-- [ ] Programmatic synthetic persona generation (50–100)
-- [ ] Homophily-based social graph (NetworkX)
+- [x] Programmatic synthetic persona generation (50–100)
+- [x] Homophily-based social graph (NetworkX)
 - [ ] Per-persona LLM reaction agent (Ollama, structured JSON out)
 - [ ] LangGraph orchestration with conditional wave loop
 - [ ] Probabilistic propagation model
@@ -1596,22 +1596,22 @@ Each checkpoint is a thing you can **run**. Do not proceed to the next block unt
 - [x] **Checkpoint B:** `analyze_video("sample.mp4")` prints a complete, valid `VideoFeatures` JSON in under 45 s cold
 
 **Evening**
-- [ ] `personas/generator.py` with the archetype table
-- [ ] `simulation/social_graph.py` + `graph_stats`
-- [ ] **Checkpoint C:** 100 personas generated deterministically; graph has 1 connected component, avg degree between 4 and 12
+- [x] `personas/generator.py` with the archetype table
+- [x] `simulation/social_graph.py` + `graph_stats`
+- [x] **Checkpoint C:** 100 personas generated deterministically; graph has 1 connected component, avg degree between 4 and 12
 
 ### Day 2 — Agents and simulation
 
 **Morning**
 - [ ] Ollama installed, model pulled, `health_check()` green
-- [ ] `agents/llm.py` — `chat_json` with retry and JSON coercion
-- [ ] `agents/audience.py` — prompt + `react()` + `heuristic_reaction()`
+- [x] `agents/llm.py` — `chat_json` with retry and JSON coercion
+- [x] `agents/audience.py` — prompt + `react()` + `heuristic_reaction()`
 - [ ] **Checkpoint D:** one persona produces a valid `Reaction` from a real video's features
 
 **Midday**
-- [ ] `scripts/dry_run.py` — 10 personas, print the table, report fallback rate
+- [x] `scripts/dry_run.py` — 10 personas, print the table, report fallback rate
 - [ ] **Iterate on the prompt here.** Target: fallback rate < 5%, visible behavioural spread between archetypes (a `casual_viewer` and a `tech_enthusiast` must not return near-identical output — if they do, your prompt isn't using the traits)
-- [ ] `agents/llm.py` batch runner with the thread pool
+- [x] `agents/llm.py` batch runner with the thread pool
 - [ ] **Checkpoint E:** 20 personas simulated in parallel in under 40 s
 
 **Afternoon**

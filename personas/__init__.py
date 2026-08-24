@@ -1,2 +1,1 @@
 """Synthetic audience population package."""
-

@@ -17,3 +17,13 @@ streamlit run app.py
 
 FFmpeg and Ollama are required outside Python. Start Ollama with `ollama serve` and pull the model named in `.env` before running a live simulation.
 
+## Phase 4 audience dry run
+
+After Ollama is ready, validate persona reactions against a real video:
+
+```powershell
+python -m scripts.dry_run --video example\index.mp4 --n 10 --seed 42
+```
+
+Use `--heuristic-only` to test the complete local pipeline without Ollama. Add
+`--output example\output\reactions.csv` to retain the reaction-level results.
