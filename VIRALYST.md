@@ -85,19 +85,19 @@ Dashboard shows:
 
 ### 2.1 In scope (build this, nothing more)
 
-- [ ] Video ingest (mp4/mov/webm, ≤120 seconds, ≤200 MB)
+- [x] Video ingest (mp4/mov/webm, ≤120 seconds, ≤200 MB)
 - [x] Audio extraction + transcription (faster-whisper)
 - [x] Frame sampling + object detection (YOLOv8n via ultralytics)
 - [x] Temporal/visual statistics (OpenCV)
 - [x] Programmatic synthetic persona generation (50–100)
 - [x] Homophily-based social graph (NetworkX)
-- [ ] Per-persona LLM reaction agent (Ollama, structured JSON out)
-- [ ] LangGraph orchestration with conditional wave loop
-- [ ] Probabilistic propagation model
-- [ ] Metric aggregation + weighted virality score
-- [ ] Segment-level breakdown
-- [ ] LLM recommendation agent
-- [ ] Streamlit dashboard
+- [x] Per-persona LLM reaction agent (Ollama, structured JSON out)
+- [x] LangGraph orchestration with conditional wave loop
+- [x] Probabilistic propagation model
+- [x] Metric aggregation + weighted virality score
+- [x] Segment-level breakdown
+- [x] LLM recommendation agent
+- [x] Streamlit dashboard
 - [x] Feature cache (skip re-analysis of the same video)
 
 ### 2.2 Explicitly out of scope
@@ -1025,9 +1025,11 @@ class SimulationState(TypedDict):
     # simulation loop
     wave_index: int
     active_users: list[int]       # who is being simulated THIS wave
+    pending_users: list[int]      # propagation candidates, not committed yet
     exposed_ids: list[int]        # cumulative
     reactions: Annotated[list[dict], operator.add]   # accumulates
     waves: list[dict]
+    continue_simulation: bool
 
     # output
     engagement_metrics: dict
@@ -1052,8 +1054,8 @@ Only `reactions` uses an additive reducer — every other field is last-write-wi
 | `seed_audience` | `social_graph` | `active_users`, `exposed_ids`, `wave_index=0` | k=5 mixed strategy |
 | `simulate_agents` | `video_features`, `personas`, `active_users` | `reactions` (append) | Parallel LLM calls |
 | `aggregate_wave` | `reactions`, `wave_index` | `waves` (append) | Per-wave stats only |
-| `propagate` | `social_graph`, last wave's reactions | `active_users`, `exposed_ids` | Probabilistic |
-| `check_threshold` | last `waves` entry | `stop_reason` | **Router**, writes nothing else |
+| `propagate` | `social_graph`, last wave's reactions | `pending_users` | Probabilistic; candidates are not reach yet |
+| `check_threshold` | last `waves` entry, `pending_users` | `active_users`, `exposed_ids`, `wave_index`, `stop_reason` | Commits pending users only when continuation passes |
 | `finalize_metrics` | all `reactions` | `engagement_metrics`, `virality_score` | Global aggregation |
 | `generate_recommendations` | features + metrics + reasons | `recommendations` | One LLM call |
 
@@ -1061,20 +1063,23 @@ Only `reactions` uses an additive reducer — every other field is last-write-wi
 
 ```python
 def route_after_threshold(state: SimulationState) -> Literal["simulate_agents", "finalize_metrics"]:
-    ok, reason = should_continue(
-        wave=state["waves"][-1],
-        wave_index=state["wave_index"],
-        reached=len(state["exposed_ids"]),
-        population=len(state["personas"]),
+    return (
+        "simulate_agents"
+        if state["continue_simulation"]
+        else "finalize_metrics"
     )
-    return "simulate_agents" if ok and state["active_users"] else "finalize_metrics"
 
 builder.add_conditional_edges("check_threshold", route_after_threshold,
                               {"simulate_agents": "simulate_agents",
                                "finalize_metrics": "finalize_metrics"})
 ```
 
-**Hard safety net:** even if the router logic has a bug, `MAX_WAVES` is checked inside `should_continue` *and* the `wave_index` increment happens in `propagate`. An infinite agent loop against a local LLM will hang the app with no error message, so belt and braces.
+`check_threshold` calculates the decision once, commits `pending_users` only
+when continuing, and advances `wave_index`. The router only reads the stored
+Boolean. **Hard safety net:** `MAX_WAVES` is checked inside `should_continue`,
+the wave index advances exactly once per admitted wave, and graph invocation
+uses an explicit recursion limit. An infinite local-LLM loop must remain
+impossible.
 
 ### 8.5 Streaming progress to the UI
 
@@ -1603,37 +1608,39 @@ Each checkpoint is a thing you can **run**. Do not proceed to the next block unt
 ### Day 2 — Agents and simulation
 
 **Morning**
-- [ ] Ollama installed, model pulled, `health_check()` green
+- [x] Ollama installed, model pulled, `health_check()` green
 - [x] `agents/llm.py` — `chat_json` with retry and JSON coercion
 - [x] `agents/audience.py` — prompt + `react()` + `heuristic_reaction()`
-- [ ] **Checkpoint D:** one persona produces a valid `Reaction` from a real video's features
+- [x] **Checkpoint D:** one persona produces a valid `Reaction` from a real video's features
 
 **Midday**
 - [x] `scripts/dry_run.py` — 10 personas, print the table, report fallback rate
-- [ ] **Iterate on the prompt here.** Target: fallback rate < 5%, visible behavioural spread between archetypes (a `casual_viewer` and a `tech_enthusiast` must not return near-identical output — if they do, your prompt isn't using the traits)
+- [x] **Iterate on the prompt here.** Target: fallback rate < 5%, visible behavioural spread between archetypes (a `casual_viewer` and a `tech_enthusiast` must not return near-identical output — if they do, your prompt isn't using the traits)
 - [x] `agents/llm.py` batch runner with the thread pool
 - [ ] **Checkpoint E:** 20 personas simulated in parallel in under 40 s
+  (correctness passed with 0% fallback; measured 188.2 s on an RTX 3050
+  Laptop GPU because the 8B model used one 58% CPU / 42% GPU inference slot)
 
 **Afternoon**
-- [ ] `simulation/propagation.py` — `next_wave`, `should_continue`
-- [ ] `simulation/metrics.py` — rates, virality score, segments
-- [ ] **Checkpoint F:** unit tests pass on synthetic reaction fixtures (no LLM needed)
+- [x] `simulation/propagation.py` — `next_wave`, `should_continue`
+- [x] `simulation/metrics.py` — rates, virality score, segments
+- [x] **Checkpoint F:** unit tests pass on synthetic reaction fixtures (no LLM needed)
 
 **Evening**
-- [ ] `workflow/state.py` and `workflow/graph.py` — all nodes + the conditional edge
-- [ ] **Checkpoint G:** full pipeline runs headless end-to-end and prints a virality score. **This is the make-or-break checkpoint.** If you reach the end of day 2 with this working, day 3 is comfortable.
+- [x] `workflow/state.py` and `workflow/graph.py` — all nodes + the conditional edge
+- [x] **Checkpoint G:** full pipeline runs headless end-to-end and prints a virality score. **This is the make-or-break checkpoint.** If you reach the end of day 2 with this working, day 3 is comfortable.
 
 ### Day 3 — Interface and polish
 
 **Morning**
-- [ ] `agents/recommender.py` + prompt
-- [ ] `app.py` skeleton: upload, sidebar, run button, `st.status` streaming
+- [x] `agents/recommender.py` + prompt
+- [x] `app.py` skeleton: upload, sidebar, run button, `st.status` streaming
 - [ ] **Checkpoint H:** upload a video in the browser and see a score
 
 **Afternoon**
-- [ ] All six result tabs
-- [ ] Plotly network graph with node colouring
-- [ ] Charts: gauge, wave line, segment bars
+- [x] All six result tabs
+- [x] Plotly network graph with node colouring
+- [x] Charts: gauge, wave line, segment bars
 - [ ] **Checkpoint I:** full demo runs cleanly from a cold start
 
 **Evening**

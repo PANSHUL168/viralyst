@@ -1,2 +1,0 @@
-"""Viralyst unit tests."""
-

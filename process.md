@@ -1,14 +1,14 @@
 # Viralyst Implementation Process
 
-Last updated: 24 August 2026
+Last updated: 28 August 2026
 
 ## 1. Project Goal
 
 Viralyst is a local-first synthetic-audience simulator for short-form video.
 It extracts information from a video, creates varied artificial viewers,
 connects them in a social network, and asks a local language model how each
-viewer would react. Later phases will propagate those reactions through the
-network, calculate engagement metrics, and recommend video improvements.
+viewer would react. It propagates those reactions through the network,
+calculates engagement metrics, and recommends concrete video improvements.
 
 The output must be described as a **directional simulation**, not as a proven
 prediction of whether a real video will go viral. `VIRALYST.md` remains the
@@ -230,14 +230,167 @@ The heuristic checkpoint ran on the real sample with 10 personas. It produced
 because heuristic-only mode was requested, not because parsing failed. The
 rows are saved in `example/output/phase4_heuristic_reactions.csv`.
 
-Ollama's Python integration is implemented, but the Windows Ollama application
-and the configured 4.9 GB `llama3.1:8b-instruct-q4_K_M` model are not currently
-installed. Therefore the real-model reaction and 20-person performance
-checkpoints remain pending and are deliberately not marked complete.
+Ollama 0.32.15 and the configured 4.9 GB
+`llama3.1:8b-instruct-q4_K_M` model are installed. Viralyst's health check is
+green. A warm one-person run produced a valid non-fallback reaction in 15.44
+seconds end to end, with 11.05 seconds spent on inference.
 
-## 8. Testing and Verification
+The live 20-person run also passed correctness and prompt-quality checks. All
+20 responses validated without fallback, all reasons were distinct, nine
+action profiles were produced, and watch percentage had a 14.05-point standard
+deviation. Archetype averages ranged from 16.0% to 32.5%, demonstrating that
+the prompt used persona differences. The batch took 188.2 seconds, however,
+so it did not meet the aspirational under-40-second Checkpoint E. On this RTX
+3050 Laptop GPU, Ollama loaded one inference slot and split the 8B model across
+58% CPU and 42% GPU. The live rows are stored in the gitignored files
+`example/output/phase4_live_1.csv` and `phase4_live_20.csv`.
 
-The suite currently contains 77 passing tests and makes no real LLM calls or
+The first cold request exposed an additional constraint: loading this model
+took 44.2 seconds and pushed total request time beyond the original 60-second
+timeout. `OLLAMA_REQUEST_TIMEOUT` was raised to 120 seconds so a valid cold
+response is not unnecessarily replaced by a heuristic fallback.
+
+## 8. Phase 5: Propagation and Metrics
+
+`simulation/propagation.py` now turns reactions into new exposures. A
+reaction's strongest action controls its base probability: share 80%, comment
+40%, like 20%, watch-only 5%, and skip 0%. The probability is multiplied by
+`0.7 + 0.3 × edge_weight`, so stronger relationships propagate somewhat more
+effectively without making weak ties useless.
+
+When several reacting users connect to the same neighbour, their independent
+chances are combined with `1 - product(1 - probability)`. This gives the
+neighbour multiple chances without allowing the result to exceed 100%.
+Already-exposed users are excluded, every random decision uses the supplied
+seeded generator, and the next wave is capped at 30 users. If too many users
+pass their probability roll, candidates with the strongest combined exposure
+probability are retained.
+
+`summarize_wave()` validates that reactions match exactly the users exposed in
+that wave and records shares, comments, likes, skips, average watch, new
+exposures, and cumulative reach. `should_continue()` returns both a decision
+and a UI-ready explanation. Propagation stops after four waves, below three
+new exposures, below 5% sharing, or at 85% population saturation.
+
+`simulation/metrics.py` calculates completion, skip, like, share, comment,
+follow, purchase-intent, reach, and reach-percentage metrics over exposed
+personas only. `segment_table()` groups reactions by archetype in stable order.
+Segments with `n < 3` remain available but can be labelled insufficient sample
+by the presentation layer.
+
+The virality score is transparent rather than learned. It combines completion,
+sharing, comments, and skipping with the configured weights, passes the raw
+value through the documented monotonic calibration curve, adds up to ten
+points for reach, and clips the result to 0–100. Calibration spreads realistic
+simulation results across a useful display range; it is not fitted to real
+platform data.
+
+A deterministic 30-person integration fixture now creates the real homophily
+graph, selects mixed seed users, runs up to four synthetic sharing waves,
+prevents duplicate exposure, records wave summaries, and finalizes engagement
+and segment metrics without Ollama. This verifies that the Phase 3 graph and
+Phase 5 algorithms fit together before LangGraph orchestration is introduced.
+
+## 9. Phase 6: LangGraph Workflow
+
+`workflow/state.py` defines `SimulationConfig` and `SimulationState` as typed
+dictionaries. `create_initial_state()` validates the video and run options,
+clamps seed size to small populations, and initializes every collection and
+output field. The reactions field uses LangGraph's additive reducer; all other
+fields remain last-write-wins.
+
+`workflow/graph.py` now compiles the complete stateful topology: analyze video,
+generate personas, build the social graph, seed the audience, simulate agents,
+aggregate the wave, propagate, check thresholds, finalize metrics, and pass
+through the reserved Phase 7 recommendation node. A recursion limit of 50 is
+set explicitly so a valid four-wave cascade cannot collide with LangGraph's
+default safety boundary.
+
+Each node reconstructs Pydantic models at module boundaries and serializes its
+output back into state. Video analysis retains hash caching; persona and graph
+construction reuse their deterministic seeds. `simulate_agents` can call the
+real batched Ollama audience or deterministic heuristics. It returns only the
+current wave's reactions, allowing LangGraph's reducer to append them to every
+earlier wave.
+
+Propagation writes candidates to `pending_users` first. Threshold checking
+commits those IDs to `active_users` and cumulative reach only when every
+continuation rule passes. This prevents the stopped workflow from counting
+people who were selected probabilistically but never received a simulated
+reaction. Per-wave random generators are derived from the base seed and wave
+index with `SeedSequence`, so replaying a run reproduces its cascade without
+storing a mutable RNG object in state.
+
+Wave summaries are accumulated explicitly because only reactions have a
+LangGraph reducer. The threshold node updates each wave's `continued` value and
+stores a human-readable reason. The router then reads one Boolean and performs
+no duplicate calculation. Finalization verifies that reaction IDs match
+exposed IDs exactly before calculating Phase 5 metrics and the virality score.
+
+`scripts/run_workflow.py` provides the headless entry point. It streams each
+node update, prints wave progress and stopping decisions, reconstructs the
+final state with reducer semantics, prints compact JSON, and optionally exports
+the complete serializable state without the in-memory NetworkX graph. Its final
+node now generates Phase 7 recommendations and reports whether they came from
+Ollama or the deterministic fallback.
+
+The real-video heuristic checkpoint used ten personas and completed every
+node. Five seed users reacted, no one shared, propagation stopped after wave
+zero, reach was 50%, and the final simulated virality score was 22.87. The
+state was saved to `example/output/phase6_heuristic_state.json`.
+
+Checkpoint G also passed with real Ollama inference. A five-person run used the
+cached `index.mp4` features, generated five valid reactions with no fallbacks,
+and finalized after one wave. All five personas skipped, producing 17% average
+watch and a score of 10.00. The run took 63.23 seconds, of which 57.83 seconds
+was audience inference. Its gitignored state is stored in
+`example/output/phase6_live_state.json`.
+
+## 10. Phase 7: Recommendations and Streamlit UI
+
+`agents/recommender.py` now turns video evidence and simulation results into
+creator advice. It selects up to ten representative audience reasons in a
+stable order, prioritizing skips and low watch percentages while retaining
+archetype variety. The compact prompt contains the opening hook, transcript,
+pacing, duration, visual evidence, overall metrics, segment metrics, and wave
+summaries. This grounds advice in observed simulation output instead of asking
+the model for generic content tips.
+
+The recommender uses one low-temperature Ollama call and validates the result
+with the `Recommendations` Pydantic contract. It removes duplicates, sorts
+high-priority edits first, limits output to five items, and rejects unknown
+segment labels. A common local-model response containing one flattened item is
+wrapped into the documented structure without a second call. If inference or
+validation still fails, the workflow records the error and returns transparent
+rules based on retention, skipping, sharing, pacing, duration, and the weakest
+sufficiently sized segment.
+
+`app.py` is now the complete Streamlit presentation layer. Uploads are checked
+for type and size, stored in `tmp/uploads/` under their SHA-256 content hash,
+and reused safely. The sidebar exposes the audience engine, population, seed
+audience, seed strategy, random seed, and wave cap. Ollama health is shown and
+cached briefly. The workflow streams node-by-node progress through `st.status`,
+and its final state remains in session state across UI reruns.
+
+The six result tabs show the directional score and engagement metrics, video
+features and transcript, segment and individual reactions, wave behavior and a
+colored NetworkX graph, prioritized recommendations, and raw exports. Plotly
+factories and pandas transformations live under `ui/`, keeping business logic
+out of the app. The Raw tab discloses fallback counts, errors, timings, CSV
+reactions, and downloadable JSON without the runtime-only graph object.
+
+`scripts/recommend_from_state.py` supports fast prompt iteration from a saved
+workflow result. The real Ollama checkpoint ran against the saved Phase 6 live
+state and returned a validated high-priority recommendation in about 40
+seconds. The result is stored in the gitignored
+`example/output/phase7_live_recommendations.json`. The full deterministic run
+on `index.mp4` scored 22.87/100 and stored three rule-based recommendations in
+`phase7_heuristic_state.json`. Streamlit started successfully on port 8502 and
+its health endpoint returned `ok`.
+
+## 11. Testing and Verification
+
+The suite currently contains 128 passing tests and makes no real LLM calls or
 model downloads. External inference is mocked so tests remain deterministic.
 Coverage includes:
 
@@ -258,6 +411,17 @@ Coverage includes:
   batch ordering, and progress reporting.
 - Audience prompt content, application-owned identifiers, schema repair,
   deterministic fallback, wave handling, and concurrent order preservation.
+- Dominant-action priority, probabilistic exposure, edge-weight modulation,
+  combined exposure paths, wave caps, duplicate prevention, and stop reasons.
+- Hand-computed overall metrics, archetype segments, score monotonicity,
+  calibration bounds, reach bonus, empty cascades, and a multi-wave integration.
+- Initial workflow validation, graph topology, streamed node order, reducer
+  accumulation, pending-user admission, dead cascades, deterministic replay,
+  final metrics, and recommendation-node fallback reporting.
+- Recommendation evidence selection, prompt grounding, response normalization,
+  deduplication, priority ordering, and deterministic fallback advice.
+- Upload validation, content-addressed storage, UI tables, Plotly figures,
+  serializable exports, and Streamlit startup without an upload.
 
 Primary verification commands are:
 
@@ -265,9 +429,14 @@ Primary verification commands are:
 pytest -q
 python -m simulation.social_graph --personas 100 --seed 42
 python -m scripts.dry_run --video example\index.mp4 --n 10 --seed 42 --heuristic-only
+pytest -q tests\test_propagation.py tests\test_metrics.py
+pytest -q tests\test_workflow.py
+python -m scripts.run_workflow --video example\index.mp4 --n 10 --seed 42 --heuristic-only
+streamlit run app.py
+python -m scripts.recommend_from_state --state example\output\phase6_live_state.json
 ```
 
-## 9. Reliability Decisions
+## 12. Reliability Decisions
 
 The implementation follows several rules intended to keep demos and future UI
 runs recoverable:
@@ -284,29 +453,28 @@ runs recoverable:
 - Configuration values live in one module instead of being scattered through
   algorithms.
 
-## 10. Current Status and Remaining Work
+## 13. Current Status and Remaining Work
 
 Completed implementation includes repository setup, contracts and utilities,
 the complete multimodal video-information pipeline, deterministic persona
 generation, connected homophily graph construction, the Ollama client layer,
 audience reaction prompting, deterministic fallback behavior, batch execution,
-diagnostic CLIs, real-video artifacts, and automated tests.
+diagnostic CLIs, real-video artifacts, probabilistic propagation, explainable
+stopping rules, engagement segmentation, calibrated scoring, and automated
+tests. LangGraph connects these layers into a streamed, bounded, multi-wave
+workflow that produces final metrics and evidence-grounded advice from either
+heuristic or real Ollama reactions. The Streamlit application now provides
+upload, configuration, progress, all six result tabs, visualizations, fallback
+disclosure, and exports.
 
-The next four major phases are:
+One major phase remains: **hardening and release**. It includes precomputed
+demo mode, exhaustive user-facing error banners, README screenshots and honest
+claims, cold-start measurement, and a three-video acceptance matrix covering a
+talking head, fast-cut montage, and silent clip.
 
-1. **Propagation and metrics:** implement `simulation/propagation.py` and
-   `simulation/metrics.py`, including waves, stopping rules, segment metrics,
-   and the 0–100 simulated virality score.
-2. **Workflow orchestration:** implement `workflow/state.py` and
-   `workflow/graph.py` to connect analysis, population, graph, reactions,
-   propagation, and finalization through LangGraph.
-3. **Recommendations and UI:** implement `agents/recommender.py` and replace
-   the placeholder `app.py` with the complete Streamlit upload and results UI.
-4. **Hardening and release:** add visualizations, precomputed demo mode,
-   user-facing errors, full README documentation, cold-start performance tests,
-   and the final multi-video test matrix.
-
-Before Phase 4 can be considered operationally complete, install Ollama, pull
-the configured model, make `health_check()` return green, and run the real
-10- and 20-person dry-run checkpoints. The code path itself is ready for those
-checks.
+Phase 4 is functionally complete: installation, health, real inference,
+structured validation, prompt spread, fallback behavior, and batching all
+work. Its only open acceptance item is Checkpoint E's under-40-second target.
+Meeting that target on this hardware requires a smaller model or a faster
+inference device; it is a performance limitation rather than a correctness
+failure.
